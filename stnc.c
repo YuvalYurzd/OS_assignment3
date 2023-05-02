@@ -8,6 +8,7 @@
 #include <poll.h>
 #include <sys/select.h>
 #include <fcntl.h>
+#include <sys/time.h>
 
 #define MAX_LEN 100
 #define MAX_MSG_LEN 1024
@@ -27,7 +28,7 @@ int client(char *ip, char *port)
     int bytes_sent;
     struct sockaddr_in serv_addr;
     char buffer[MAX_MSG_LEN] = {0};
-    struct pollfd fds[2];
+    struct pollfd fds[POLL_SIZE];
 
     // Create socket file descriptor
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
@@ -66,7 +67,7 @@ int client(char *ip, char *port)
     while (1)
     {
         // Poll for events
-        if (poll(fds, 2, -1) < 0)
+        if (poll(fds, POLL_SIZE, -1) < 0)
         {
             printf("\nPoll failed\n");
             exit(0);
@@ -90,7 +91,7 @@ int client(char *ip, char *port)
         if (fds[1].revents & POLLIN)
         {
             bytes_read = recv(sock, buffer, MAX_MSG_LEN, 0);
-            if (bytes_read<= 0)
+            if (bytes_read <= 0)
             {
                 printf("error in receiving message");
                 exit(0);
@@ -149,7 +150,6 @@ int server(char *port)
         exit(0);
     }
 
-
     if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0)
     {
         perror("accept failed");
@@ -168,7 +168,6 @@ int server(char *port)
     fds[1].fd = new_socket;
     fds[1].events = POLLIN;
 
-
     while (1)
     {
         // Poll for events
@@ -180,7 +179,6 @@ int server(char *port)
             exit(0);
         }
 
-        // Handle client messages
         if (fds[1].revents & POLLIN)
         {
             bytes_read = recv(new_socket, buffer, MAX_MSG_LEN, 0);
@@ -191,7 +189,6 @@ int server(char *port)
             }
             else
             {
-                // Broadcast message to all other clients
                 printf("Message received from client: %s\n", buffer);
                 memset(buffer, 0, sizeof(buffer));
             }
@@ -201,7 +198,7 @@ int server(char *port)
             fgets(buffer, MAX_MSG_LEN, stdin);
             buffer[strlen(buffer) - 1] = '\0';
             bytes_sent = send(new_socket, buffer, strlen(buffer), 0);
-            if(bytes_sent < 0)
+            if (bytes_sent < 0)
             {
                 perror("error in sending message");
                 exit(0);
@@ -212,28 +209,125 @@ int server(char *port)
 
     return 0;
 }
+
+int client_test(char *ip, char *port, char *type, char *param)
+{
+    return 0;
+}
+
+int server_test(char *port, int test, int quiet)
+{
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
-    if (argc < 3)
+    // decalre flags for all possible combinations
+    int test_flag = 0, quiet_flag = 0;
+    char param[MAX_LEN];
+    char type[MAX_LEN];
+    char port[MAX_LEN];
+    char ip[MAX_LEN];
+
+    if (argc < 3 || argc > 7)
     {
         printusage();
     }
-    if (strcmp(argv[1], "-c") == 0)
+    if (argc == 3)
     {
-        char ip[MAX_LEN];
-        char port[MAX_LEN];
-        strcpy(ip, argv[2]);
-        strcpy(port, argv[3]);
-        client(ip, port);
+        if (strcmp(argv[1], "-s") == 0) // part A server
+        {
+            strcpy(port, argv[2]);
+            server(port);
+        }
+        else
+        {
+            printusage();
+        }
+        server_test(port, test_flag, quiet_flag);
     }
-    else if (strcmp(argv[1], "-s") == 0)
+    else if (argc == 4)
     {
-        char port[MAX_LEN];
-        strcpy(port, argv[2]);
-        server(port);
+        if (strcmp(argv[1], "-c") == 0) // part A client
+        {
+            strcpy(ip, argv[2]);
+            strcpy(port, argv[3]);
+            client(ip, port);
+        }
+        else if (strcmp(argv[1], "-s") == 0 && strcmp(argv[3], "-p") == 0) // Server with perform test flag enabled
+        {
+            strcpy(port, argv[2]);
+            test_flag = 1;
+            server(port);
+        }
+        else
+        {
+            printusage();
+        }
     }
-    else
+    else if (argc == 5)
+    {
+        // Server with perform test flag enabled and quiet flag enabled
+        if (strcmp(argv[1], "-s") == 0 && strcmp(argv[3], "-p") == 0 && strcmp(argv[4], "-q") == 0)
+        {
+            strcpy(port, argv[2]);
+            test_flag = 1;
+            quiet_flag = 1;
+            server(port);
+        }
+        else
+        {
+            printusage();
+        }
+        server_test(port, test_flag, quiet_flag);
+    }
+    else if (argc == 6)
     {
         printusage();
     }
+
+    else if (argc == 7) // client with test flag enabled
+    {
+        if (strcmp(argv[1], "-c") == 0 && strcmp(argv[4], "-p") == 0)
+        {
+            test_flag = 1;
+            strcpy(ip, argv[2]);
+            strcpy(port, argv[3]);
+            if (strcmp(argv[5], "ipv4") == 0 || strcmp(argv[5], "ipv6") == 0)
+            {
+                strcpy(type, argv[5]);
+                if (strcmp(argv[6], "tcp") == 0 || strcmp(argv[6], "udp") == 0)
+                {
+                    strcpy(param, argv[6]);
+                }
+                else
+                {
+                    printusage();
+                }
+            }
+            else if (strcmp(argv[5], "uds") == 0)
+            {
+                strcpy(type, argv[5]);
+                if (strcmp(argv[6], "stream") == 0 || strcmp(argv[6], "dgram") == 0)
+                {
+                    strcpy(param, argv[6]);
+                }
+                else
+                {
+                    printusage();
+                }
+            }
+            else if (strcmp(argv[5], "mmap") == 0 || strcmp(argv[5], "pipe") == 0)
+            {
+                strcpy(type, argv[5]);
+                // fill the rest (file)
+            }
+            else
+            {
+                printusage();
+            }
+            client_test(ip, port, type, param);
+        }
+    }
+    return 0;
 }
