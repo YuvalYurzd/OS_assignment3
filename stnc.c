@@ -9,6 +9,8 @@
 #include <errno.h>
 #include <netdb.h>
 #include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <time.h>
 
@@ -323,7 +325,8 @@ int client_test(char *ip, char *port, char *type, char *param)
                 perror("Invalid address/ Address not supported");
                 return -1;
             }
-            if (connect(client_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+            if (connect(client_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+            {
                 perror("Connection Failed");
                 return -1;
             }
@@ -341,6 +344,80 @@ int client_test(char *ip, char *port, char *type, char *param)
             close(client_fd);
             fclose(file);
             return 0;
+        }
+    }
+    else if (strcmp(param, "udp") == 0)
+    {
+        if (strcmp(type, "ipv6") == 0)
+        {
+            const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin"; // switch with any 100MB+ file
+            FILE *file = fopen(filename, "r");
+
+            // create socket
+            int client_socket = socket(AF_INET6, SOCK_DGRAM, 0);
+            if (client_socket < 0)
+            {
+                perror("socket");
+                return 1;
+            }
+
+            // prepare server address
+            struct sockaddr_in6 server_addr;
+            memset(&server_addr, 0, sizeof(server_addr));
+            server_addr.sin6_family = AF_INET6;
+            inet_pton(AF_INET6, ip, &server_addr.sin6_addr);
+            server_addr.sin6_port = htons(atoi(port) + 1);
+
+            long bytes_sent = 0;
+            while (!feof(file))
+            {
+                int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+                int num_sent = sendto(client_socket, buffer, num_read, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+                bytes_sent += num_sent;
+            }
+
+            printf("Sent %ld bytes\n", bytes_sent);
+
+            // Close the client socket and file
+            close(client_socket);
+            fclose(file);
+        }
+        else if (strcmp(type, "ipv4") == 0)
+        {
+            const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin"; // switch with any 100MB+ file
+            FILE *file = fopen(filename, "r");
+
+            // create a UDP socket
+            int client_socket = socket(AF_INET, SOCK_DGRAM, 0);
+            if (client_socket < 0)
+            {
+                perror("socket");
+                return 1;
+            }
+
+            // set the server address
+            struct sockaddr_in server_addr = {0};
+            server_addr.sin_family = AF_INET;
+            server_addr.sin_port = htons(atoi(port) + 1);
+            if (inet_pton(AF_INET, ip, &server_addr.sin_addr) <= 0)
+            {
+                perror("inet_pton");
+                return 1;
+            }
+
+            long bytes_sent = 0;
+            while (!feof(file))
+            {
+                int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+                int num_sent = sendto(client_socket, buffer, num_read, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+                bytes_sent += num_sent;
+            }
+
+            printf("Sent %ld bytes\n", bytes_sent);
+
+            // Close the client socket and file
+            close(client_socket);
+            fclose(file);
         }
     }
     return 0;
@@ -533,6 +610,91 @@ int server_test(char *port, int test, int quiet)
                 // Close the client socket, server socket
                 close(client_fd);
                 close(server_fd);
+            }
+            else if (strcmp(client_type, "ipv6") == 0 && strcmp(client_param, "udp") == 0)
+            {
+                char buffer[MAX_MSG_LEN];
+                int valread;
+
+                // create socket
+                int server_socket = socket(AF_INET6, SOCK_DGRAM, 0);
+                if (server_socket < 0)
+                {
+                    perror("socket");
+                    return 1;
+                }
+
+                // bind socket to address
+                struct sockaddr_in6 server_addr;
+                memset(&server_addr, 0, sizeof(server_addr));
+                server_addr.sin6_family = AF_INET6;
+                server_addr.sin6_addr = in6addr_any;
+                server_addr.sin6_port = htons(atoi(port) + 1);
+
+                if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+                {
+                    perror("bind");
+                    return 1;
+                }
+
+                // receive data
+                struct sockaddr_in6 client_addr;
+                socklen_t client_addr_len = sizeof(client_addr);
+
+                // Reading file contents sent by client
+                start_time = clock();
+                long bytes_received = 0;
+                while (valread = recvfrom(server_socket, buffer, MAX_MSG_LEN, 0, (struct sockaddr *)&client_addr, &client_addr_len))
+                {
+                    bytes_received += valread;
+                }
+
+                printf("Received %ld bytes\n", bytes_received);
+                end_time = clock();
+                elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+                close(server_socket);
+            }
+            else if (strcmp(client_type, "ipv4") == 0 && strcmp(client_param, "udp") == 0)
+            {
+                char buffer[MAX_MSG_LEN];
+                int valread;
+
+                // create a UDP socket
+                int server_socket = socket(AF_INET, SOCK_DGRAM, 0);
+                if (server_socket < 0)
+                {
+                    perror("socket");
+                    return 1;
+                }
+
+                // bind the socket to the specified port
+                struct sockaddr_in server_addr = {0};
+                server_addr.sin_family = AF_INET;
+                server_addr.sin_port = htons(atoi(port) + 1);
+                server_addr.sin_addr.s_addr = INADDR_ANY;
+                if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+                {
+                    perror("bind");
+                    return 1;
+                }
+
+                struct sockaddr_in client_addr = {0};
+                socklen_t client_addr_len = sizeof(client_addr);
+
+                 // Reading file contents sent by client
+                start_time = clock();
+                long bytes_received = 0;
+                while (valread = recvfrom(server_socket, buffer, MAX_MSG_LEN, 0, (struct sockaddr *)&client_addr, &client_addr_len))
+                {
+                    bytes_received += valread;
+                }
+
+                printf("Received %ld bytes\n", bytes_received);
+                end_time = clock();
+                elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+                close(server_socket);
             }
             memset(client_type, 0, sizeof(client_type));
             memset(client_param, 0, sizeof(client_param));
