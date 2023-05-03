@@ -301,6 +301,49 @@ int client_test(char *ip, char *port, char *type, char *param)
 
             return 0;
         }
+        else if (strcmp(type, "ipv4") == 0)
+        {
+            const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin"; // switch with any 100MB+ file
+            FILE *file = fopen(filename, "r");
+            int client_fd = 0, valread;
+            struct sockaddr_in serv_addr;
+            char buffer[MAX_MSG_LEN] = {0};
+
+            if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+            {
+                perror("socket creation error");
+                return -1;
+            }
+            memset(&serv_addr, '0', sizeof(serv_addr));
+
+            serv_addr.sin_family = AF_INET;
+            serv_addr.sin_port = htons(atoi(port) + 1);
+
+            // Converting IPv4 address from text to binary form
+            if (inet_pton(AF_INET, ip, &serv_addr.sin_addr) <= 0)
+            {
+                perror("Invalid address/ Address not supported");
+                return -1;
+            }
+            if (connect(client_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+                perror("Connection Failed");
+                return -1;
+            }
+            long bytes_sent = 0;
+            while (!feof(file))
+            {
+                int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+                int num_sent = send(client_fd, buffer, num_read, 0);
+                bytes_sent += num_sent;
+            }
+
+            printf("Sent %ld bytes\n", bytes_sent);
+
+            // Close the client socket and file
+            close(client_fd);
+            fclose(file);
+            return 0;
+        }
     }
     return 0;
 }
@@ -312,14 +355,15 @@ int server_test(char *port, int test, int quiet)
     int socket_fd1, length1, n1;
     struct sockaddr_in server_addr1, client_addr1;
     char buffer[1024];
-    printf("check1\n");
+    clock_t start_time, end_time;
+    double elapsed_time;
+
     // create a UDP socket
     if ((socket_fd1 = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
     {
         perror("socket creation failed");
         exit(EXIT_FAILURE);
     }
-    printf("check2\n");
     memset(&server_addr1, 0, sizeof(server_addr1));
     memset(&client_addr1, 0, sizeof(client_addr1));
 
@@ -334,7 +378,6 @@ int server_test(char *port, int test, int quiet)
         perror("bind failed");
         exit(EXIT_FAILURE);
     }
-    printf("check3\n");
     while (1)
     {
         // Wait for client request
@@ -356,7 +399,6 @@ int server_test(char *port, int test, int quiet)
             i++;
             memset(buffer, 0, sizeof(buffer));
         }
-        printf("check4\n");
         char *message = "done";
         sendto(socket_fd1, (const char *)message, strlen(message), MSG_CONFIRM, (const struct sockaddr *)&client_addr1, length1);
 
@@ -368,8 +410,6 @@ int server_test(char *port, int test, int quiet)
                 struct sockaddr_storage server_addr, client_addr;
                 socklen_t client_addr_len = sizeof(client_addr);
                 char buffer[MAX_MSG_LEN] = {0};
-                clock_t start_time, end_time;
-                double elapsed_time;
 
                 // Creating socket file descriptor
                 if ((server_fd = socket(AF_INET6, SOCK_STREAM, 0)) == 0)
@@ -423,6 +463,73 @@ int server_test(char *port, int test, int quiet)
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
 
+                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+
+                // Close the client socket, server socket
+                close(client_fd);
+                close(server_fd);
+            }
+            else if (strcmp(client_type, "ipv4") == 0 && strcmp(client_param, "tcp") == 0)
+            {
+                int server_fd, client_fd, valread;
+                struct sockaddr_in address;
+                int opt = 1;
+                int addrlen = sizeof(address);
+                char buffer[MAX_MSG_LEN] = {0};
+
+                // Creating socket file descriptor
+                if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0)
+                {
+                    perror("socket failed");
+                    exit(EXIT_FAILURE);
+                }
+
+                // Forcefully attaching socket to the port 8080
+                if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT,
+                               &opt, sizeof(opt)))
+                {
+                    perror("setsockopt");
+                    exit(EXIT_FAILURE);
+                }
+                address.sin_family = AF_INET;
+                address.sin_addr.s_addr = INADDR_ANY;
+                address.sin_port = htons(atoi(port) + 1);
+
+                // Binding the socket to the IP address and port
+                if (bind(server_fd, (struct sockaddr *)&address,
+                         sizeof(address)) < 0)
+                {
+                    perror("bind failed");
+                    exit(EXIT_FAILURE);
+                }
+
+                // Listening for incoming connections
+                if (listen(server_fd, 3) < 0)
+                {
+                    perror("listen");
+                    exit(EXIT_FAILURE);
+                }
+
+                printf("Listening on port %d...\n", atoi(port) + 1);
+
+                // Accepting incoming connection
+                if ((client_fd = accept(server_fd, (struct sockaddr *)&address,
+                                        (socklen_t *)&addrlen)) < 0)
+                {
+                    perror("accept");
+                    exit(EXIT_FAILURE);
+                }
+
+                // Reading file contents sent by client
+                start_time = clock();
+                long bytes_received = 0;
+                while ((valread = recv(client_fd, buffer, MAX_MSG_LEN, 0)) > 0)
+                {
+                    bytes_received += valread;
+                }
+                printf("Received %ld bytes\n", bytes_received);
+                end_time = clock();
+                elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
                 printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
 
                 // Close the client socket, server socket
