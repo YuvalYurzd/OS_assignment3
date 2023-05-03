@@ -6,9 +6,14 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <poll.h>
-#include <sys/select.h>
+#include <errno.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
-#include <sys/time.h>
+#include <time.h>
+
 
 #define MAX_LEN 100
 #define MAX_MSG_LEN 1024
@@ -212,11 +217,136 @@ int server(char *port)
 
 int client_test(char *ip, char *port, char *type, char *param)
 {
+    if (strcmp(param, "tcp") == 0)
+    {
+        if (strcmp(type, "ipv6") == 0)
+        {
+            int client_fd, valread;
+            struct sockaddr_in6 server_addr;
+            char buffer[1024] = {0};
+            const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin";
+            FILE *file = fopen(filename, "r");
+
+            // Creating socket file descriptor
+            if ((client_fd = socket(AF_INET6, SOCK_STREAM, 0)) == 0)
+            {
+                perror("socket failed");
+                exit(EXIT_FAILURE);
+            }
+
+
+            // Initialize the server address structure
+            memset(&server_addr, 0, sizeof(server_addr));
+            server_addr.sin6_family = AF_INET6;
+            server_addr.sin6_port = htons(atoi(port));
+            printf("hi\n");
+
+            // Convert the server IP address from text to binary format
+            if (inet_pton(AF_INET6, ip, &server_addr.sin6_addr) < 0)
+            {
+                perror("inet_pton");
+                exit(EXIT_FAILURE);
+            }
+            printf("hi\n");
+            // Connect to the server
+            if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+            {
+                perror("connect");
+                exit(EXIT_FAILURE);
+            }
+
+            printf("Connected to %s:%d\n", ip, atoi(port));
+
+            // Send the file data to the server
+            long bytes_sent = 0;
+            while (!feof(file))
+            {
+                int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+                int num_sent = send(client_fd, buffer, num_read, 0);
+                bytes_sent += num_sent;
+            }
+
+            printf("Sent %ld bytes\n", bytes_sent);
+
+            // Close the client socket and file
+            close(client_fd);
+            fclose(file);
+
+            return 0;
+        }
+    }
     return 0;
 }
 
 int server_test(char *port, int test, int quiet)
 {
+    if (test == 1)
+    {
+        int server_fd, client_fd, valread;
+        struct sockaddr_storage server_addr, client_addr;
+        socklen_t client_addr_len = sizeof(client_addr);
+        char buffer[MAX_MSG_LEN] = {0};
+        clock_t start_time, end_time;
+        double elapsed_time;
+
+        // Creating socket file descriptor
+        if ((server_fd = socket(AF_INET6, SOCK_STREAM, 0)) == 0)
+        {
+            perror("socket failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Initialize the server address structure
+        memset(&server_addr, 0, sizeof(server_addr));
+        ((struct sockaddr_in6 *)&server_addr)->sin6_family = AF_INET6;
+        ((struct sockaddr_in6 *)&server_addr)->sin6_port = htons(atoi(port));
+        ((struct sockaddr_in6 *)&server_addr)->sin6_addr = in6addr_any;
+
+        // Bind the socket to the server address
+        if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+        {
+            perror("bind failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Listen for incoming connections
+        if (listen(server_fd, 1) < 0)
+        {
+            perror("listen failed");
+            exit(EXIT_FAILURE);
+        }
+
+        printf("Listening on port %d...\n", atoi(port));
+
+        // Accept incoming connections
+        if ((client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len)) < 0)
+        {
+            perror("accept failed");
+            exit(EXIT_FAILURE);
+        }
+
+        printf("Accepted connection from %s:%d\n",
+               inet_ntoa(((struct sockaddr_in *)&client_addr)->sin_addr),
+               ntohs(((struct sockaddr_in *)&client_addr)->sin_port));
+
+        // Receive data from the client and start measuring time
+        start_time = clock();
+        long bytes_received = 0;
+        while ((valread = recv(client_fd, buffer, MAX_MSG_LEN, 0)) > 0)
+        {
+            bytes_received += valread;
+        }
+
+        printf("Received %ld bytes\n", bytes_received);
+        end_time = clock();
+        elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+        
+        printf("ipv6_tcp, %f\n", elapsed_time);
+
+        // Close the client socket, server socket
+        close(client_fd);
+        close(server_fd);
+    }
     return 0;
 }
 
@@ -273,7 +403,7 @@ int main(int argc, char *argv[])
             strcpy(port, argv[2]);
             test_flag = 1;
             quiet_flag = 1;
-            server(port);
+            server_test(port,test_flag, quiet_flag);
         }
         else
         {
