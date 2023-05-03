@@ -335,102 +335,106 @@ int server_test(char *port, int test, int quiet)
         exit(EXIT_FAILURE);
     }
     printf("check3\n");
-    // Wait for client request
-    length1 = sizeof(client_addr1);
-    int i = 0;
-    while (i < 2)
+    while (1)
     {
-        socklen_t length = sizeof(client_addr1);
-        n1 = recvfrom(socket_fd1, (char *)buffer, 1024, MSG_WAITALL, (struct sockaddr *)&client_addr1, &length);
-        buffer[n1] = '\0';
-        if (i == 0)
+        // Wait for client request
+        length1 = sizeof(client_addr1);
+        int i = 0;
+        while (i < 2)
         {
-            strcpy(client_type, buffer);
+            socklen_t length = sizeof(client_addr1);
+            n1 = recvfrom(socket_fd1, (char *)buffer, 1024, MSG_WAITALL, (struct sockaddr *)&client_addr1, &length);
+            buffer[n1] = '\0';
+            if (i == 0)
+            {
+                strcpy(client_type, buffer);
+            }
+            else
+            {
+                strcpy(client_param, buffer);
+            }
+            i++;
+            memset(buffer, 0, sizeof(buffer));
         }
-        else
+        printf("check4\n");
+        char *message = "done";
+        sendto(socket_fd1, (const char *)message, strlen(message), MSG_CONFIRM, (const struct sockaddr *)&client_addr1, length1);
+
+        if (test == 1)
         {
-            strcpy(client_param, buffer);
+            if (strcmp(client_type, "ipv6") == 0 && strcmp(client_param, "tcp") == 0)
+            {
+                int server_fd, client_fd, valread;
+                struct sockaddr_storage server_addr, client_addr;
+                socklen_t client_addr_len = sizeof(client_addr);
+                char buffer[MAX_MSG_LEN] = {0};
+                clock_t start_time, end_time;
+                double elapsed_time;
+
+                // Creating socket file descriptor
+                if ((server_fd = socket(AF_INET6, SOCK_STREAM, 0)) == 0)
+                {
+                    perror("socket failed");
+                    exit(EXIT_FAILURE);
+                }
+
+                // Initialize the server address structure
+                memset(&server_addr, 0, sizeof(server_addr));
+                ((struct sockaddr_in6 *)&server_addr)->sin6_family = AF_INET6;
+                ((struct sockaddr_in6 *)&server_addr)->sin6_port = htons(atoi(port) + 1);
+                ((struct sockaddr_in6 *)&server_addr)->sin6_addr = in6addr_any;
+
+                // Bind the socket to the server address
+                if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+                {
+                    perror("bind failed");
+                    exit(EXIT_FAILURE);
+                }
+
+                // Listen for incoming connections
+                if (listen(server_fd, 1) < 0)
+                {
+                    perror("listen failed");
+                    exit(EXIT_FAILURE);
+                }
+
+                printf("Listening on port %d...\n", atoi(port) + 1);
+
+                // Accept incoming connections
+                if ((client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len)) < 0)
+                {
+                    perror("accept failed");
+                    exit(EXIT_FAILURE);
+                }
+
+                printf("Accepted connection from %s:%d\n",
+                       inet_ntoa(((struct sockaddr_in *)&client_addr)->sin_addr),
+                       ntohs(((struct sockaddr_in *)&client_addr)->sin_port));
+
+                // Receive data from the client and start measuring time
+                start_time = clock();
+                long bytes_received = 0;
+                while ((valread = recv(client_fd, buffer, MAX_MSG_LEN, 0)) > 0)
+                {
+                    bytes_received += valread;
+                }
+
+                printf("Received %ld bytes\n", bytes_received);
+                end_time = clock();
+                elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+
+                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+
+                // Close the client socket, server socket
+                close(client_fd);
+                close(server_fd);
+            }
+            memset(client_type, 0, sizeof(client_type));
+            memset(client_param, 0, sizeof(client_param));
+            length1 = 0;
         }
-        i++;
-        memset(buffer, 0, sizeof(buffer));
     }
-    printf("check4\n");
-    char *message = "done";
-    sendto(socket_fd1, (const char *)message, strlen(message), MSG_CONFIRM, (const struct sockaddr *)&client_addr1, length1);
     close(socket_fd1);
-    
-    if (test == 1)
-    {
-        if (strcmp(client_type, "ipv6") == 0 && strcmp(client_param, "tcp") == 0)
-        {
-            int server_fd, client_fd, valread;
-            struct sockaddr_storage server_addr, client_addr;
-            socklen_t client_addr_len = sizeof(client_addr);
-            char buffer[MAX_MSG_LEN] = {0};
-            clock_t start_time, end_time;
-            double elapsed_time;
-
-            // Creating socket file descriptor
-            if ((server_fd = socket(AF_INET6, SOCK_STREAM, 0)) == 0)
-            {
-                perror("socket failed");
-                exit(EXIT_FAILURE);
-            }
-
-            // Initialize the server address structure
-            memset(&server_addr, 0, sizeof(server_addr));
-            ((struct sockaddr_in6 *)&server_addr)->sin6_family = AF_INET6;
-            ((struct sockaddr_in6 *)&server_addr)->sin6_port = htons(atoi(port) + 1);
-            ((struct sockaddr_in6 *)&server_addr)->sin6_addr = in6addr_any;
-
-            // Bind the socket to the server address
-            if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
-            {
-                perror("bind failed");
-                exit(EXIT_FAILURE);
-            }
-
-            // Listen for incoming connections
-            if (listen(server_fd, 1) < 0)
-            {
-                perror("listen failed");
-                exit(EXIT_FAILURE);
-            }
-
-            printf("Listening on port %d...\n", atoi(port) + 1);
-
-            // Accept incoming connections
-            if ((client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len)) < 0)
-            {
-                perror("accept failed");
-                exit(EXIT_FAILURE);
-            }
-
-            printf("Accepted connection from %s:%d\n",
-                   inet_ntoa(((struct sockaddr_in *)&client_addr)->sin_addr),
-                   ntohs(((struct sockaddr_in *)&client_addr)->sin_port));
-
-            // Receive data from the client and start measuring time
-            start_time = clock();
-            long bytes_received = 0;
-            while ((valread = recv(client_fd, buffer, MAX_MSG_LEN, 0)) > 0)
-            {
-                bytes_received += valread;
-            }
-
-            printf("Received %ld bytes\n", bytes_received);
-            end_time = clock();
-            elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
-
-            printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
-
-            // Close the client socket, server socket
-            close(client_fd);
-            close(server_fd);
-        }
-        memset(client_type,0,sizeof(client_type));
-        memset(client_param,0,sizeof(client_param));
-    }
     return 0;
 }
 
