@@ -13,11 +13,14 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <time.h>
+#include <sys/un.h>
 
 #define MAX_LEN 100
 #define MAX_MSG_LEN 1024
 #define SO_REUSEPORT 15
 #define POLL_SIZE 2
+#define SOCK_PATH "uds_dgram_socket"
+#define SOCKET_PATH "/tmp/uds_socket"
 
 void printusage()
 {
@@ -420,6 +423,84 @@ int client_test(char *ip, char *port, char *type, char *param)
             fclose(file);
         }
     }
+    else if (strcmp(param, "dgram") == 0 && strcmp(type, "uds") == 0)
+    {
+        int client_sock, len;
+        struct sockaddr_un client_addr, server_addr;
+        const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin"; // switch with any 100MB+ file
+        FILE *file = fopen(filename, "r");
+
+        if ((client_sock = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1)
+        {
+            perror("socket");
+            exit(1);
+        }
+
+        memset(&client_addr, 0, sizeof(client_addr));
+        client_addr.sun_family = AF_UNIX;
+
+        if (bind(client_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) == -1)
+        {
+            perror("bind");
+            exit(1);
+        }
+
+        memset(&server_addr, 0, sizeof(server_addr));
+        server_addr.sun_family = AF_UNIX;
+        strcpy(server_addr.sun_path, SOCK_PATH);
+
+        long bytes_sent = 0;
+        while (!feof(file))
+        {
+            int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+            int num_sent = sendto(client_sock, buffer, num_read, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+            bytes_sent += num_sent;
+        }
+
+        printf("Sent %ld bytes\n", bytes_sent);
+
+        fclose(file);
+        close(client_sock);
+        unlink(client_addr.sun_path);
+    }
+    else if (strcmp(param, "stream") == 0 && strcmp(type, "uds") == 0) //// working here!!!!!!!
+    {
+        printf("\nenter stream\n");
+        int client_fd;
+        struct sockaddr_un server_addr;
+        const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin"; // switch with any 100MB+ file
+        FILE *file = fopen(filename, "r");
+
+        if ((client_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+        {
+            perror("socket");
+            exit(1);
+        }
+
+        memset(&server_addr, 0, sizeof(server_addr));
+        server_addr.sun_family = AF_UNIX;
+        strncpy(server_addr.sun_path, SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
+        
+        sleep(0.5);
+        if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
+        {
+            perror("connect");
+            exit(1);
+        }
+
+        long bytes_sent = 0;
+        while (!feof(file))
+        {
+            int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+            int num_sent = send(client_fd, buffer, num_read, 0);
+            bytes_sent += num_sent;
+        }
+
+        fclose(file);
+        close(client_fd);
+
+        printf("Sent %ld bytes\n", bytes_sent);
+    }
     return 0;
 }
 
@@ -682,7 +763,7 @@ int server_test(char *port, int test, int quiet)
                 struct sockaddr_in client_addr = {0};
                 socklen_t client_addr_len = sizeof(client_addr);
 
-                 // Reading file contents sent by client
+                // Reading file contents sent by client
                 start_time = clock();
                 long bytes_received = 0;
                 while (valread = recvfrom(server_socket, buffer, MAX_MSG_LEN, 0, (struct sockaddr *)&client_addr, &client_addr_len))
@@ -696,6 +777,102 @@ int server_test(char *port, int test, int quiet)
                 printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
                 close(server_socket);
             }
+            else if (strcmp(client_type, "uds") == 0 && strcmp(client_param, "dgram") == 0)
+            {
+                int server_sock, len;
+                int valread;
+                struct sockaddr_un server_addr, client_addr;
+                char buf[1024];
+
+                if ((server_sock = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1)
+                {
+                    perror("socket");
+                    exit(1);
+                }
+
+                memset(&server_addr, 0, sizeof(server_addr));
+                server_addr.sun_family = AF_UNIX;
+                strcpy(server_addr.sun_path, SOCK_PATH);
+                unlink(server_addr.sun_path);
+
+                if (bind(server_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
+                {
+                    perror("bind");
+                    exit(1);
+                }
+
+                socklen_t client_addr_len = sizeof(client_addr);
+
+                start_time = clock();
+                long bytes_received = 0;
+                while (valread = recvfrom(server_sock, buf, sizeof(buf), 0, (struct sockaddr *)&client_addr, &client_addr_len))
+                {
+                    bytes_received += valread;
+                }
+
+                printf("Received %ld bytes\n", bytes_received);
+                end_time = clock();
+                elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+
+                close(server_sock);
+                unlink(SOCK_PATH);
+            }
+            else if (strcmp(client_type, "uds") == 0 && strcmp(client_param, "stream") == 0)
+            {
+                int server_fd, client_fd, len;
+                int valread;
+                struct sockaddr_un server_addr, client_addr;
+                char buffer[1024];
+
+                if ((server_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+                {
+                    perror("socket");
+                    exit(1);
+                }
+
+                memset(&server_addr, 0, sizeof(server_addr));
+                server_addr.sun_family = AF_UNIX;
+                strncpy(server_addr.sun_path, SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
+
+                unlink(SOCKET_PATH);
+
+                if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
+                {
+                    perror("bind");
+                    exit(1);
+                }
+
+                if (listen(server_fd, 5) == -1)
+                {
+                    perror("listen");
+                    exit(1);
+                }
+
+                len = sizeof(client_addr);
+                if ((client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &len)) == -1)
+                {
+                    perror("accept");
+                    exit(1);
+                }
+
+                start_time = clock();
+                long bytes_received = 0;
+                while ((valread = recv(client_fd, buffer, MAX_MSG_LEN, 0)) > 0)
+                {
+                    bytes_received += valread;
+                }
+
+                printf("Received %ld bytes\n", bytes_received);
+                end_time = clock();
+                elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+
+                close(client_fd);
+                close(server_fd);
+                unlink(SOCKET_PATH);
+            }
+            
             memset(client_type, 0, sizeof(client_type));
             memset(client_param, 0, sizeof(client_param));
             length1 = 0;
@@ -718,6 +895,7 @@ int main(int argc, char *argv[])
     {
         printusage();
     }
+
     if (argc == 3)
     {
         if (strcmp(argv[1], "-s") == 0) // part A server
@@ -725,6 +903,7 @@ int main(int argc, char *argv[])
             strcpy(port, argv[2]);
             server(port);
         }
+
         else
         {
             printusage();
@@ -739,12 +918,14 @@ int main(int argc, char *argv[])
             strcpy(port, argv[3]);
             client(ip, port);
         }
+
         else if (strcmp(argv[1], "-s") == 0 && strcmp(argv[3], "-p") == 0) // Server with perform test flag enabled
         {
             strcpy(port, argv[2]);
             test_flag = 1;
             server(port);
         }
+
         else
         {
             printusage();
@@ -778,6 +959,7 @@ int main(int argc, char *argv[])
             test_flag = 1;
             strcpy(ip, argv[2]);
             strcpy(port, argv[3]);
+
             if (strcmp(argv[5], "ipv4") == 0 || strcmp(argv[5], "ipv6") == 0)
             {
                 strcpy(type, argv[5]);
@@ -790,6 +972,7 @@ int main(int argc, char *argv[])
                     printusage();
                 }
             }
+
             else if (strcmp(argv[5], "uds") == 0)
             {
                 strcpy(type, argv[5]);
@@ -802,6 +985,7 @@ int main(int argc, char *argv[])
                     printusage();
                 }
             }
+
             else if (strcmp(argv[5], "mmap") == 0 || strcmp(argv[5], "pipe") == 0)
             {
                 strcpy(type, argv[5]);
