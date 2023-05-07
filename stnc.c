@@ -286,17 +286,31 @@ int client_test(char *ip, char *port, char *type, char *param)
             }
 
             printf("Connected to %s:%d\n", ip, atoi(port) + 1);
-
-            // Send the file data to the server
             long bytes_sent = 0;
+            long simple_checksum_n;
+
+            // Calculate the number of bytes in the file content
+            while (!feof(file))
+            {
+                int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+                bytes_sent += num_read;
+            }
+
+            // Send the checksum (number of bytes in the file)
+            simple_checksum_n = htonl(bytes_sent); // Convert to network byte order
+            send(client_fd, &simple_checksum_n, sizeof(simple_checksum_n), 0);
+
+            // Rewind the file pointer to the beginning
+            rewind(file);
+
+            // Send the file content
+            bytes_sent = 0;
             while (!feof(file))
             {
                 int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
                 int num_sent = send(client_fd, buffer, num_read, 0);
                 bytes_sent += num_sent;
             }
-
-            printf("Sent %ld bytes\n", bytes_sent);
 
             // Close the client socket and file
             close(client_fd);
@@ -333,15 +347,30 @@ int client_test(char *ip, char *port, char *type, char *param)
                 perror("Connection Failed");
                 return -1;
             }
+
             long bytes_sent = 0;
+            long simple_checksum_n;
+
+            // Calculate the number of bytes in the file content
+            while (!feof(file))
+            {
+                int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+                bytes_sent += num_read;
+            }
+
+            // Send the checksum (number of bytes in the file)
+            simple_checksum_n = htonl(bytes_sent); // Convert to network byte order
+            send(client_fd, &simple_checksum_n, sizeof(simple_checksum_n), 0);
+
+            // Rewind the file pointer to the beginning
+            rewind(file);
+
             while (!feof(file))
             {
                 int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
                 int num_sent = send(client_fd, buffer, num_read, 0);
                 bytes_sent += num_sent;
             }
-
-            printf("Sent %ld bytes\n", bytes_sent);
 
             // Close the client socket and file
             close(client_fd);
@@ -372,14 +401,29 @@ int client_test(char *ip, char *port, char *type, char *param)
             server_addr.sin6_port = htons(atoi(port) + 1);
 
             long bytes_sent = 0;
+            long simple_checksum_n;
+
+            // Calculate the number of bytes in the file content
+            while (!feof(file))
+            {
+                int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+                bytes_sent += num_read;
+            }
+            // Send the checksum (number of bytes in the file)
+            simple_checksum_n = htonl(bytes_sent); // Convert to network byte order
+            sendto(client_socket, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+
+            // Rewind the file pointer to the beginning
+            rewind(file);
+
+            // Send the file content
+            bytes_sent = 0;
             while (!feof(file))
             {
                 int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
                 int num_sent = sendto(client_socket, buffer, num_read, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
                 bytes_sent += num_sent;
             }
-
-            printf("Sent %ld bytes\n", bytes_sent);
 
             // Close the client socket and file
             close(client_socket);
@@ -409,14 +453,29 @@ int client_test(char *ip, char *port, char *type, char *param)
             }
 
             long bytes_sent = 0;
+            long simple_checksum_n;
+
+            // Calculate the number of bytes in the file content
+            while (!feof(file))
+            {
+                int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+                bytes_sent += num_read;
+            }
+            // Send the checksum (number of bytes in the file)
+            simple_checksum_n = htonl(bytes_sent); // Convert to network byte order
+            sendto(client_socket, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+
+            // Rewind the file pointer to the beginning
+            rewind(file);
+
+            // Send the file content
+            bytes_sent = 0;
             while (!feof(file))
             {
                 int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
                 int num_sent = sendto(client_socket, buffer, num_read, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
                 bytes_sent += num_sent;
             }
-
-            printf("Sent %ld bytes\n", bytes_sent);
 
             // Close the client socket and file
             close(client_socket);
@@ -450,6 +509,23 @@ int client_test(char *ip, char *port, char *type, char *param)
         strcpy(server_addr.sun_path, SOCK_PATH);
 
         long bytes_sent = 0;
+        long simple_checksum_n;
+
+        // Calculate the number of bytes in the file content
+        while (!feof(file))
+        {
+            int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+            bytes_sent += num_read;
+        }
+        // Send the checksum (number of bytes in the file)
+        simple_checksum_n = htonl(bytes_sent); // Convert to network byte order
+        sendto(client_sock, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+
+        // Rewind the file pointer to the beginning
+        rewind(file);
+
+        // Send the file content
+        bytes_sent = 0;
         while (!feof(file))
         {
             int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
@@ -480,8 +556,8 @@ int client_test(char *ip, char *port, char *type, char *param)
         memset(&server_addr, 0, sizeof(server_addr));
         server_addr.sun_family = AF_UNIX;
         strncpy(server_addr.sun_path, SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
-        
-        sleep(0.5);
+
+        sleep(0.7);
         if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
         {
             perror("connect");
@@ -489,6 +565,22 @@ int client_test(char *ip, char *port, char *type, char *param)
         }
 
         long bytes_sent = 0;
+        long simple_checksum_n;
+
+        // Calculate the number of bytes in the file content
+        while (!feof(file))
+        {
+            int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+            bytes_sent += num_read;
+        }
+
+        // Send the checksum (number of bytes in the file)
+        simple_checksum_n = htonl(bytes_sent); // Convert to network byte order
+        send(client_fd, &simple_checksum_n, sizeof(simple_checksum_n), 0);
+
+        // Rewind the file pointer to the beginning
+        rewind(file);
+        bytes_sent = 0;
         while (!feof(file))
         {
             int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
@@ -499,7 +591,6 @@ int client_test(char *ip, char *port, char *type, char *param)
         fclose(file);
         close(client_fd);
 
-        printf("Sent %ld bytes\n", bytes_sent);
     }
     return 0;
 }
@@ -607,19 +698,29 @@ int server_test(char *port, int test, int quiet)
                        inet_ntoa(((struct sockaddr_in *)&client_addr)->sin_addr),
                        ntohs(((struct sockaddr_in *)&client_addr)->sin_port));
 
-                // Receive data from the client and start measuring time
                 start_time = clock();
                 long bytes_received = 0;
+
+                // receive checksum from client
+                long simple_checksum_n;
+                recv(client_fd, &simple_checksum_n, sizeof(simple_checksum_n), 0);
+                long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
+
                 while ((valread = recv(client_fd, buffer, MAX_MSG_LEN, 0)) > 0)
                 {
                     bytes_received += valread;
                 }
 
-                printf("Received %ld bytes\n", bytes_received);
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
 
                 printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+
+                // checksum (check if all bytes were received)
+                if (received_checksum == bytes_received)
+                    printf("all data has been received\n");
+                else
+                    printf("some data lost\n");
 
                 // Close the client socket, server socket
                 close(client_fd);
@@ -676,17 +777,28 @@ int server_test(char *port, int test, int quiet)
                     exit(EXIT_FAILURE);
                 }
 
-                // Reading file contents sent by client
                 start_time = clock();
                 long bytes_received = 0;
+
+                // receive checksum from client
+                long simple_checksum_n;
+                recv(client_fd, &simple_checksum_n, sizeof(simple_checksum_n), 0);
+                long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
+
                 while ((valread = recv(client_fd, buffer, MAX_MSG_LEN, 0)) > 0)
                 {
                     bytes_received += valread;
                 }
-                printf("Received %ld bytes\n", bytes_received);
+
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
                 printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+
+                // checksum (check if all bytes were received)
+                if (received_checksum == bytes_received)
+                    printf("all data has been received\n");
+                else
+                    printf("some data lost\n");
 
                 // Close the client socket, server socket
                 close(client_fd);
@@ -725,15 +837,26 @@ int server_test(char *port, int test, int quiet)
                 // Reading file contents sent by client
                 start_time = clock();
                 long bytes_received = 0;
+
+                long simple_checksum_n;
+                recvfrom(server_socket, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&client_addr, &client_addr_len);
+                long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
+
                 while (valread = recvfrom(server_socket, buffer, MAX_MSG_LEN, 0, (struct sockaddr *)&client_addr, &client_addr_len))
+
                 {
                     bytes_received += valread;
                 }
 
-                printf("Received %ld bytes\n", bytes_received);
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
                 printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+
+                if (received_checksum == bytes_received)
+                    printf("all data has been received\n");
+                else
+                    printf("some data lost\n");
+
                 close(server_socket);
             }
             else if (strcmp(client_type, "ipv4") == 0 && strcmp(client_param, "udp") == 0)
@@ -766,15 +889,25 @@ int server_test(char *port, int test, int quiet)
                 // Reading file contents sent by client
                 start_time = clock();
                 long bytes_received = 0;
+
+                long simple_checksum_n;
+                recvfrom(server_socket, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&client_addr, &client_addr_len);
+                long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
+
                 while (valread = recvfrom(server_socket, buffer, MAX_MSG_LEN, 0, (struct sockaddr *)&client_addr, &client_addr_len))
                 {
                     bytes_received += valread;
                 }
 
-                printf("Received %ld bytes\n", bytes_received);
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
                 printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+
+                if (received_checksum == bytes_received)
+                    printf("all data has been received\n");
+                else
+                    printf("some data lost\n");
+
                 close(server_socket);
             }
             else if (strcmp(client_type, "uds") == 0 && strcmp(client_param, "dgram") == 0)
@@ -803,17 +936,27 @@ int server_test(char *port, int test, int quiet)
 
                 socklen_t client_addr_len = sizeof(client_addr);
 
+                // Reading file contents sent by client
                 start_time = clock();
                 long bytes_received = 0;
+
+                long simple_checksum_n;
+                recvfrom(server_sock, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&client_addr, &client_addr_len);
+                long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
+
                 while (valread = recvfrom(server_sock, buf, sizeof(buf), 0, (struct sockaddr *)&client_addr, &client_addr_len))
                 {
                     bytes_received += valread;
                 }
 
-                printf("Received %ld bytes\n", bytes_received);
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
                 printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+
+                if (received_checksum == bytes_received)
+                    printf("all data has been received\n");
+                else
+                    printf("some data lost\n");
 
                 close(server_sock);
                 unlink(SOCK_PATH);
@@ -858,21 +1001,30 @@ int server_test(char *port, int test, int quiet)
 
                 start_time = clock();
                 long bytes_received = 0;
+
+                // receive checksum from client
+                long simple_checksum_n;
+                recv(client_fd, &simple_checksum_n, sizeof(simple_checksum_n), 0);
+                long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
                 while ((valread = recv(client_fd, buffer, MAX_MSG_LEN, 0)) > 0)
                 {
                     bytes_received += valread;
                 }
 
-                printf("Received %ld bytes\n", bytes_received);
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
                 printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+
+                if (received_checksum == bytes_received)
+                    printf("all data has been received\n");
+                else
+                    printf("some data lost\n");
 
                 close(client_fd);
                 close(server_fd);
                 unlink(SOCKET_PATH);
             }
-            
+
             memset(client_type, 0, sizeof(client_type));
             memset(client_param, 0, sizeof(client_param));
             length1 = 0;
