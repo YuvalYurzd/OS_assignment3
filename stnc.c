@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <sys/un.h>
+#include <sys/mman.h>
 
 #define MAX_LEN 100
 #define MAX_MSG_LEN 1024
@@ -21,12 +22,51 @@
 #define POLL_SIZE 2
 #define SOCK_PATH "uds_dgram_socket"
 #define SOCKET_PATH "/tmp/uds_socket"
+#define LINE_LENGTH 1000
+#define FILESIZE 104857600 // >100MB
 
 void printusage()
 {
     printf("Usage for client: stnc -c [IP] [PORT] [-p] <type> <param>\n");
     printf("Usage for server: stnc -s [PORT] [-p] [-q]\n");
     exit(0);
+}
+
+void create_random_file2(char *filename)
+{
+    FILE *file = fopen(filename, "wb");
+    if (file == NULL)
+    {
+        fprintf(stderr, "Failed to open file for writing\n");
+        return;
+    }
+
+    char buffer[MAX_MSG_LEN];
+    size_t bytes_written = 0;
+
+    // Seed the random number generator
+    srand((unsigned int)time(NULL));
+
+    while (bytes_written < FILESIZE)
+    {
+        // Fill the buffer with random bytes
+        for (int i = 0; i < MAX_MSG_LEN; i++)
+        {
+            buffer[i] = (char)rand();
+        }
+
+        size_t chunk_size = MAX_MSG_LEN;
+        // If we're close to the end, adjust the chunk size so we don't write too much
+        if (bytes_written + MAX_MSG_LEN > FILESIZE)
+        {
+            chunk_size = FILESIZE - bytes_written;
+        }
+
+        fwrite(buffer, 1, chunk_size, file);
+        bytes_written += chunk_size;
+    }
+
+    fclose(file);
 }
 
 int client(char *ip, char *port)
@@ -256,7 +296,7 @@ int client_test(char *ip, char *port, char *type, char *param)
             int client_fd, valread;
             struct sockaddr_in6 server_addr;
             char buffer[1024] = {0};
-            const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin"; // switch with any 100MB+ file
+            const char *filename = "random.txt"; // switch with any 100MB+ file
             FILE *file = fopen(filename, "r");
 
             // Creating socket file descriptor
@@ -320,7 +360,7 @@ int client_test(char *ip, char *port, char *type, char *param)
         }
         else if (strcmp(type, "ipv4") == 0)
         {
-            const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin"; // switch with any 100MB+ file
+            const char *filename = "random.txt"; // switch with any 100MB+ file
             FILE *file = fopen(filename, "r");
             int client_fd = 0, valread;
             struct sockaddr_in serv_addr;
@@ -382,7 +422,7 @@ int client_test(char *ip, char *port, char *type, char *param)
     {
         if (strcmp(type, "ipv6") == 0)
         {
-            const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin"; // switch with any 100MB+ file
+            const char *filename = "random.txt"; // switch with any 100MB+ file
             FILE *file = fopen(filename, "r");
 
             // create socket
@@ -431,7 +471,7 @@ int client_test(char *ip, char *port, char *type, char *param)
         }
         else if (strcmp(type, "ipv4") == 0)
         {
-            const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin"; // switch with any 100MB+ file
+            const char *filename = "random.txt"; // switch with any 100MB+ file
             FILE *file = fopen(filename, "r");
 
             // create a UDP socket
@@ -486,7 +526,7 @@ int client_test(char *ip, char *port, char *type, char *param)
     {
         int client_sock, len;
         struct sockaddr_un client_addr, server_addr;
-        const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin"; // switch with any 100MB+ file
+        const char *filename = "random.txt"; // switch with any 100MB+ file
         FILE *file = fopen(filename, "r");
 
         if ((client_sock = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1)
@@ -537,14 +577,13 @@ int client_test(char *ip, char *port, char *type, char *param)
 
         fclose(file);
         close(client_sock);
-        unlink(client_addr.sun_path);
     }
     else if (strcmp(param, "stream") == 0 && strcmp(type, "uds") == 0) //// working here!!!!!!!
     {
         printf("\nenter stream\n");
         int client_fd;
         struct sockaddr_un server_addr;
-        const char *filename = "/home/yuval/Desktop/os_matala3/100MB.bin"; // switch with any 100MB+ file
+        const char *filename = "random.txt"; // switch with any 100MB+ file
         FILE *file = fopen(filename, "r");
 
         if ((client_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
@@ -590,7 +629,14 @@ int client_test(char *ip, char *port, char *type, char *param)
 
         fclose(file);
         close(client_fd);
-
+    }
+    else if (strcmp(type, "pipe") == 0)
+    {
+        
+    }
+    else if (strcmp(type, "mmap") == 0)
+    {
+        
     }
     return 0;
 }
@@ -684,8 +730,10 @@ int server_test(char *port, int test, int quiet)
                     perror("listen failed");
                     exit(EXIT_FAILURE);
                 }
-
-                printf("Listening on port %d...\n", atoi(port) + 1);
+                
+                if(quiet == 0){
+                    printf("Listening on port %d...\n", atoi(port) + 1);
+                }
 
                 // Accept incoming connections
                 if ((client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len)) < 0)
@@ -694,9 +742,11 @@ int server_test(char *port, int test, int quiet)
                     exit(EXIT_FAILURE);
                 }
 
+                if(quiet == 0){
                 printf("Accepted connection from %s:%d\n",
                        inet_ntoa(((struct sockaddr_in *)&client_addr)->sin_addr),
                        ntohs(((struct sockaddr_in *)&client_addr)->sin_port));
+                }
 
                 start_time = clock();
                 long bytes_received = 0;
@@ -714,13 +764,15 @@ int server_test(char *port, int test, int quiet)
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
 
-                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+                printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
+                if(quiet == 0){
                 // checksum (check if all bytes were received)
                 if (received_checksum == bytes_received)
                     printf("all data has been received\n");
                 else
                     printf("some data lost\n");
+                }
 
                 // Close the client socket, server socket
                 close(client_fd);
@@ -767,8 +819,9 @@ int server_test(char *port, int test, int quiet)
                     exit(EXIT_FAILURE);
                 }
 
+                if(quiet == 0){
                 printf("Listening on port %d...\n", atoi(port) + 1);
-
+                }
                 // Accepting incoming connection
                 if ((client_fd = accept(server_fd, (struct sockaddr *)&address,
                                         (socklen_t *)&addrlen)) < 0)
@@ -792,14 +845,15 @@ int server_test(char *port, int test, int quiet)
 
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
-                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+                printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
+                if(quiet == 0){
                 // checksum (check if all bytes were received)
                 if (received_checksum == bytes_received)
                     printf("all data has been received\n");
                 else
                     printf("some data lost\n");
-
+                }
                 // Close the client socket, server socket
                 close(client_fd);
                 close(server_fd);
@@ -850,13 +904,14 @@ int server_test(char *port, int test, int quiet)
 
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
-                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+                printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
+                if(quiet == 0){
                 if (received_checksum == bytes_received)
                     printf("all data has been received\n");
                 else
                     printf("some data lost\n");
-
+                }
                 close(server_socket);
             }
             else if (strcmp(client_type, "ipv4") == 0 && strcmp(client_param, "udp") == 0)
@@ -901,13 +956,14 @@ int server_test(char *port, int test, int quiet)
 
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
-                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+                printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
+                if(quiet == 0){
                 if (received_checksum == bytes_received)
                     printf("all data has been received\n");
                 else
                     printf("some data lost\n");
-
+                }
                 close(server_socket);
             }
             else if (strcmp(client_type, "uds") == 0 && strcmp(client_param, "dgram") == 0)
@@ -951,13 +1007,14 @@ int server_test(char *port, int test, int quiet)
 
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
-                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+               printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
+                if(quiet == 0){
                 if (received_checksum == bytes_received)
                     printf("all data has been received\n");
                 else
                     printf("some data lost\n");
-
+                }
                 close(server_sock);
                 unlink(SOCK_PATH);
             }
@@ -1013,16 +1070,22 @@ int server_test(char *port, int test, int quiet)
 
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
-                printf("%s_%s, %f\n", client_type, client_param, elapsed_time);
+                printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
+                if(quiet == 0){
                 if (received_checksum == bytes_received)
                     printf("all data has been received\n");
                 else
                     printf("some data lost\n");
+                }
 
                 close(client_fd);
                 close(server_fd);
                 unlink(SOCKET_PATH);
+            }
+            else if (strcmp(client_type, "pipe") == 0)
+            {
+              
             }
 
             memset(client_type, 0, sizeof(client_type));
@@ -1042,11 +1105,12 @@ int main(int argc, char *argv[])
     char type[MAX_LEN];
     char port[MAX_LEN];
     char ip[MAX_LEN];
-
+    char filename[MAX_LEN];
     if (argc < 3 || argc > 7)
     {
         printusage();
     }
+    create_random_file2("random.txt");
 
     if (argc == 3)
     {
@@ -1075,7 +1139,7 @@ int main(int argc, char *argv[])
         {
             strcpy(port, argv[2]);
             test_flag = 1;
-            server(port);
+            server_test(port, test_flag, quiet_flag);
         }
 
         else
@@ -1141,7 +1205,7 @@ int main(int argc, char *argv[])
             else if (strcmp(argv[5], "mmap") == 0 || strcmp(argv[5], "pipe") == 0)
             {
                 strcpy(type, argv[5]);
-                // fill the rest (file)
+                strcpy(param, argv[6]);
             }
             else
             {
@@ -1149,6 +1213,14 @@ int main(int argc, char *argv[])
             }
             client_test(ip, port, type, param);
         }
+    }
+    if (remove("random.txt") == 0)
+    {
+        printf("File deleted successfully.\n");
+    }
+    else
+    {
+        perror("Error deleting the file");
     }
     return 0;
 }
