@@ -682,6 +682,51 @@ int client_test(char *ip, char *port, char *type, char *param)
     }
     else if (strcmp(type, "mmap") == 0)
     {
+        int fd = open("random.txt", O_RDONLY);
+        if (fd == -1)
+        {
+            perror("Error opening file for reading");
+            exit(EXIT_FAILURE);
+        }
+
+        struct stat st;
+        fstat(fd, &st);
+        size_t filesize = st.st_size;
+
+        void *file_memory = mmap(0, filesize, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (file_memory == MAP_FAILED)
+        {
+            perror("Error mmapping the file");
+            exit(EXIT_FAILURE);
+        }
+
+        // Open the shared memory object
+        int shmem_fd = shm_open(param, O_CREAT | O_RDWR, 0666);
+        if (shmem_fd == -1)
+        {
+            perror("Error opening shared memory object");
+            exit(EXIT_FAILURE);
+        }
+
+        // Set the size of the shared memory object
+        ftruncate(shmem_fd, FILESIZE);
+
+        // Memory map the shared memory object
+        void *shared_memory = mmap(0, FILESIZE, PROT_WRITE, MAP_SHARED, shmem_fd, 0);
+        if (shared_memory == MAP_FAILED)
+        {
+            perror("Error mmapping the shared memory object");
+            exit(EXIT_FAILURE);
+        }
+
+        // Copy the file to the shared memory
+        memcpy(shared_memory, file_memory, filesize);
+
+        // Cleanup
+        munmap(file_memory, filesize);
+        munmap(shared_memory, FILESIZE);
+        close(fd);
+        close(shmem_fd);
     }
     return 0;
 }
@@ -843,7 +888,6 @@ int server_test(char *port, int test, int quiet)
                     exit(EXIT_FAILURE);
                 }
 
-                
                 if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT,
                                &opt, sizeof(opt)))
                 {
@@ -1130,7 +1174,7 @@ int server_test(char *port, int test, int quiet)
                 start_time = clock();
                 long bytes_received = 0;
 
-                // receive checksum 
+                // receive checksum
                 long simple_checksum_n;
                 recv(client_fd, &simple_checksum_n, sizeof(simple_checksum_n), 0);
                 long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
@@ -1201,7 +1245,7 @@ int server_test(char *port, int test, int quiet)
                     bytes_read += num_read;
                 }
 
-                //receive checksum
+                // receive checksum
                 long simple_checksum_n;
                 recvfrom(server_socket, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&client_addr, &client_addr_len);
                 long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
@@ -1226,7 +1270,45 @@ int server_test(char *port, int test, int quiet)
                 // Close the socket
                 close(server_socket);
             }
+            else if (strcmp(client_type, "mmap") == 0)
+            {
 
+                // Open the shared memory object
+                int shmem_fd = shm_open(client_param, O_RDONLY, 0666);
+                if (shmem_fd == -1)
+                {
+                    perror("Error opening shared memory object");
+                    exit(EXIT_FAILURE);
+                }
+
+                // Memory map the shared memory object
+                void *shared_memory = mmap(0, FILESIZE, PROT_READ, MAP_SHARED, shmem_fd, 0);
+                if (shared_memory == MAP_FAILED)
+                {
+                    perror("Error mmapping the shared memory object");
+                    exit(EXIT_FAILURE);
+                }
+
+                start_time = clock();
+                long bytes_read = 0;
+                for (size_t i = 0; i < FILESIZE; ++i)
+                {
+                    if (((char *)shared_memory)[i] != '\0')
+                    {
+                        bytes_read++;
+                    }
+                }
+                end_time = clock();
+                elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+
+                // print test result
+                printf("%s,%ld\n", client_type, (long int)elapsed_time);
+
+                // Cleanup
+                munmap(shared_memory, FILESIZE);
+                close(shmem_fd);
+
+            }
             memset(client_type, 0, sizeof(client_type));
             memset(client_param, 0, sizeof(client_param));
             length1 = 0;
