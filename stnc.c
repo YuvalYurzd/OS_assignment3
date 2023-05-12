@@ -15,6 +15,7 @@
 #include <time.h>
 #include <sys/un.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 
 #define MAX_LEN 100
 #define MAX_MSG_LEN 1024
@@ -317,7 +318,7 @@ int client_test(char *ip, char *port, char *type, char *param)
                 perror("inet_pton");
                 exit(EXIT_FAILURE);
             }
-
+            sleep(1.5);
             // Connect to the server
             if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
             {
@@ -382,6 +383,7 @@ int client_test(char *ip, char *port, char *type, char *param)
                 perror("Invalid address/ Address not supported");
                 return -1;
             }
+            sleep(1.5);
             if (connect(client_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
             {
                 perror("Connection Failed");
@@ -596,7 +598,7 @@ int client_test(char *ip, char *port, char *type, char *param)
         server_addr.sun_family = AF_UNIX;
         strncpy(server_addr.sun_path, SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
 
-        sleep(0.7);
+        sleep(1.5);
         if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
         {
             perror("connect");
@@ -632,11 +634,54 @@ int client_test(char *ip, char *port, char *type, char *param)
     }
     else if (strcmp(type, "pipe") == 0)
     {
-        
+        // create a UDP socket
+        int client_socket = socket(AF_INET, SOCK_DGRAM, 0);
+        if (client_socket < 0)
+        {
+            perror("socket");
+            return 1;
+        }
+
+        // set the server address
+        struct sockaddr_in server_addr = {0};
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_port = htons(atoi(port) + 1);
+        if (inet_pton(AF_INET, ip, &server_addr.sin_addr) <= 0)
+        {
+            perror("inet_pton");
+            return 1;
+        }
+
+        const char *filename = "random.txt"; // switch with any 100MB+ file
+        FILE *file = fopen(filename, "r");
+
+        int fd;
+        // Create the FIFO (named pipe) if it doesn't exist
+        mknod(param, __S_IFIFO | 0666, 0);
+
+        // Open the FIFO for writing
+        fd = open(param, O_WRONLY);
+        if (fd == -1)
+        {
+            perror("Error opening FIFO");
+            exit(1);
+        }
+
+        long bytes_written = 0;
+        while (!feof(file))
+        {
+            int num_read = fread(buffer, sizeof(char), sizeof(buffer), file);
+            int num_written = write(fd, buffer, num_read);
+            bytes_written += num_written;
+        }
+        printf("Wrote into file %ld bytes\n", bytes_written);
+        int simple_checksum_n;
+        simple_checksum_n = htonl(bytes_written); // Convert to network byte order
+        sendto(client_socket, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+        return 0;
     }
     else if (strcmp(type, "mmap") == 0)
     {
-        
     }
     return 0;
 }
@@ -730,8 +775,9 @@ int server_test(char *port, int test, int quiet)
                     perror("listen failed");
                     exit(EXIT_FAILURE);
                 }
-                
-                if(quiet == 0){
+
+                if (quiet == 0)
+                {
                     printf("Listening on port %d...\n", atoi(port) + 1);
                 }
 
@@ -742,10 +788,11 @@ int server_test(char *port, int test, int quiet)
                     exit(EXIT_FAILURE);
                 }
 
-                if(quiet == 0){
-                printf("Accepted connection from %s:%d\n",
-                       inet_ntoa(((struct sockaddr_in *)&client_addr)->sin_addr),
-                       ntohs(((struct sockaddr_in *)&client_addr)->sin_port));
+                if (quiet == 0)
+                {
+                    printf("Accepted connection from %s:%d\n",
+                           inet_ntoa(((struct sockaddr_in *)&client_addr)->sin_addr),
+                           ntohs(((struct sockaddr_in *)&client_addr)->sin_port));
                 }
 
                 start_time = clock();
@@ -756,6 +803,7 @@ int server_test(char *port, int test, int quiet)
                 recv(client_fd, &simple_checksum_n, sizeof(simple_checksum_n), 0);
                 long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
 
+                // receive file content
                 while ((valread = recv(client_fd, buffer, MAX_MSG_LEN, 0)) > 0)
                 {
                     bytes_received += valread;
@@ -764,14 +812,16 @@ int server_test(char *port, int test, int quiet)
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
 
+                // print test results
                 printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
-                if(quiet == 0){
-                // checksum (check if all bytes were received)
-                if (received_checksum == bytes_received)
-                    printf("all data has been received\n");
-                else
-                    printf("some data lost\n");
+                if (quiet == 0)
+                {
+                    // checksum (check if all bytes were received)
+                    if (received_checksum == bytes_received)
+                        printf("all data has been received\n");
+                    else
+                        printf("some data lost\n");
                 }
 
                 // Close the client socket, server socket
@@ -793,7 +843,7 @@ int server_test(char *port, int test, int quiet)
                     exit(EXIT_FAILURE);
                 }
 
-                // Forcefully attaching socket to the port 8080
+                
                 if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT,
                                &opt, sizeof(opt)))
                 {
@@ -819,8 +869,9 @@ int server_test(char *port, int test, int quiet)
                     exit(EXIT_FAILURE);
                 }
 
-                if(quiet == 0){
-                printf("Listening on port %d...\n", atoi(port) + 1);
+                if (quiet == 0)
+                {
+                    printf("Listening on port %d...\n", atoi(port) + 1);
                 }
                 // Accepting incoming connection
                 if ((client_fd = accept(server_fd, (struct sockaddr *)&address,
@@ -838,6 +889,7 @@ int server_test(char *port, int test, int quiet)
                 recv(client_fd, &simple_checksum_n, sizeof(simple_checksum_n), 0);
                 long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
 
+                // receive file content
                 while ((valread = recv(client_fd, buffer, MAX_MSG_LEN, 0)) > 0)
                 {
                     bytes_received += valread;
@@ -845,15 +897,19 @@ int server_test(char *port, int test, int quiet)
 
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+
+                // print test results
                 printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
-                if(quiet == 0){
-                // checksum (check if all bytes were received)
-                if (received_checksum == bytes_received)
-                    printf("all data has been received\n");
-                else
-                    printf("some data lost\n");
+                if (quiet == 0)
+                {
+                    // checksum (check if all bytes were received)
+                    if (received_checksum == bytes_received)
+                        printf("all data has been received\n");
+                    else
+                        printf("some data lost\n");
                 }
+
                 // Close the client socket, server socket
                 close(client_fd);
                 close(server_fd);
@@ -892,10 +948,12 @@ int server_test(char *port, int test, int quiet)
                 start_time = clock();
                 long bytes_received = 0;
 
+                // receive checksum
                 long simple_checksum_n;
                 recvfrom(server_socket, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&client_addr, &client_addr_len);
                 long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
 
+                // receive file cotent
                 while (valread = recvfrom(server_socket, buffer, MAX_MSG_LEN, 0, (struct sockaddr *)&client_addr, &client_addr_len))
 
                 {
@@ -904,14 +962,18 @@ int server_test(char *port, int test, int quiet)
 
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+
+                // print test results
                 printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
-                if(quiet == 0){
-                if (received_checksum == bytes_received)
-                    printf("all data has been received\n");
-                else
-                    printf("some data lost\n");
+                if (quiet == 0)
+                {
+                    if (received_checksum == bytes_received)
+                        printf("all data has been received\n");
+                    else
+                        printf("some data lost\n");
                 }
+
                 close(server_socket);
             }
             else if (strcmp(client_type, "ipv4") == 0 && strcmp(client_param, "udp") == 0)
@@ -941,14 +1003,15 @@ int server_test(char *port, int test, int quiet)
                 struct sockaddr_in client_addr = {0};
                 socklen_t client_addr_len = sizeof(client_addr);
 
-                // Reading file contents sent by client
                 start_time = clock();
                 long bytes_received = 0;
 
+                // receive checksum
                 long simple_checksum_n;
                 recvfrom(server_socket, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&client_addr, &client_addr_len);
                 long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
 
+                // receive file content
                 while (valread = recvfrom(server_socket, buffer, MAX_MSG_LEN, 0, (struct sockaddr *)&client_addr, &client_addr_len))
                 {
                     bytes_received += valread;
@@ -956,14 +1019,18 @@ int server_test(char *port, int test, int quiet)
 
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+
+                // print test results
                 printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
-                if(quiet == 0){
-                if (received_checksum == bytes_received)
-                    printf("all data has been received\n");
-                else
-                    printf("some data lost\n");
+                if (quiet == 0)
+                {
+                    if (received_checksum == bytes_received)
+                        printf("all data has been received\n");
+                    else
+                        printf("some data lost\n");
                 }
+
                 close(server_socket);
             }
             else if (strcmp(client_type, "uds") == 0 && strcmp(client_param, "dgram") == 0)
@@ -992,14 +1059,15 @@ int server_test(char *port, int test, int quiet)
 
                 socklen_t client_addr_len = sizeof(client_addr);
 
-                // Reading file contents sent by client
                 start_time = clock();
                 long bytes_received = 0;
 
+                // receive checksum
                 long simple_checksum_n;
                 recvfrom(server_sock, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&client_addr, &client_addr_len);
                 long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
 
+                // receive file content
                 while (valread = recvfrom(server_sock, buf, sizeof(buf), 0, (struct sockaddr *)&client_addr, &client_addr_len))
                 {
                     bytes_received += valread;
@@ -1007,13 +1075,16 @@ int server_test(char *port, int test, int quiet)
 
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
-               printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
-                if(quiet == 0){
-                if (received_checksum == bytes_received)
-                    printf("all data has been received\n");
-                else
-                    printf("some data lost\n");
+                // print test result
+                printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
+
+                if (quiet == 0)
+                {
+                    if (received_checksum == bytes_received)
+                        printf("all data has been received\n");
+                    else
+                        printf("some data lost\n");
                 }
                 close(server_sock);
                 unlink(SOCK_PATH);
@@ -1059,10 +1130,12 @@ int server_test(char *port, int test, int quiet)
                 start_time = clock();
                 long bytes_received = 0;
 
-                // receive checksum from client
+                // receive checksum 
                 long simple_checksum_n;
                 recv(client_fd, &simple_checksum_n, sizeof(simple_checksum_n), 0);
                 long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
+
+                // receive file content
                 while ((valread = recv(client_fd, buffer, MAX_MSG_LEN, 0)) > 0)
                 {
                     bytes_received += valread;
@@ -1070,13 +1143,16 @@ int server_test(char *port, int test, int quiet)
 
                 end_time = clock();
                 elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+
+                // print test result
                 printf("%s_%s,%ld\n", client_type, client_param, (long int)elapsed_time);
 
-                if(quiet == 0){
-                if (received_checksum == bytes_received)
-                    printf("all data has been received\n");
-                else
-                    printf("some data lost\n");
+                if (quiet == 0)
+                {
+                    if (received_checksum == bytes_received)
+                        printf("all data has been received\n");
+                    else
+                        printf("some data lost\n");
                 }
 
                 close(client_fd);
@@ -1085,7 +1161,70 @@ int server_test(char *port, int test, int quiet)
             }
             else if (strcmp(client_type, "pipe") == 0)
             {
-              
+                int fd;
+                char buffer[MAX_MSG_LEN];
+                // create a UDP socket
+                int server_socket = socket(AF_INET, SOCK_DGRAM, 0);
+                if (server_socket < 0)
+                {
+                    perror("socket");
+                    return 1;
+                }
+
+                // bind the socket to the specified port
+                struct sockaddr_in server_addr = {0};
+                server_addr.sin_family = AF_INET;
+                server_addr.sin_port = htons(atoi(port) + 1);
+                server_addr.sin_addr.s_addr = INADDR_ANY;
+                if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+                {
+                    perror("bind");
+                    return 1;
+                }
+
+                struct sockaddr_in client_addr = {0};
+                socklen_t client_addr_len = sizeof(client_addr);
+
+                // Open the FIFO for reading
+                fd = open(client_param, O_RDONLY);
+                if (fd == -1)
+                {
+                    perror("Error opening FIFO");
+                    exit(1);
+                }
+
+                start_time = clock();
+                long bytes_read = 0;
+                int num_read;
+                while ((num_read = read(fd, buffer, sizeof(buffer))) > 0)
+                {
+                    bytes_read += num_read;
+                }
+
+                //receive checksum
+                long simple_checksum_n;
+                recvfrom(server_socket, &simple_checksum_n, sizeof(simple_checksum_n), 0, (struct sockaddr *)&client_addr, &client_addr_len);
+                long received_checksum = ntohl(simple_checksum_n); // Convert to host byte order
+
+                end_time = clock();
+                elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0;
+
+                // print test result
+                printf("%s,%ld\n", client_type, (long int)elapsed_time);
+
+                if (quiet == 0)
+                {
+                    if (received_checksum == bytes_read)
+                        printf("all data has been received\n");
+                    else
+                        printf("some data lost\n");
+                }
+
+                // Close the FIFO
+                close(fd);
+
+                // Close the socket
+                close(server_socket);
             }
 
             memset(client_type, 0, sizeof(client_type));
