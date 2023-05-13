@@ -162,7 +162,6 @@ int server(char *port)
     int addrlen = sizeof(address);
     char buffer[MAX_MSG_LEN] = {0};
     int opt = 1;
-    int clients[POLL_SIZE] = {0};
     struct pollfd fds[POLL_SIZE];
 
     // Create socket file descriptor
